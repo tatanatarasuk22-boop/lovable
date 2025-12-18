@@ -17,40 +17,35 @@ class VideoRequest(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "ok"}
+    return {"status": "ok", "version": "v10-compatible"}
 
 @app.post("/info")
 async def get_info(request: VideoRequest):
-    # Очищаємо посилання від зайвих параметрів трекінгу (?si=...)
+    # Очищаємо посилання
     clean_url = request.url.split('?')[0]
     
-    COBALT_API = "https://api.cobalt.tools/api/json"
+    # НОВИЙ ЕНДПОІНТ Cobalt v10
+    COBALT_API = "https://api.cobalt.tools/"
     
+    # Новий формат тіла запиту для v10
     payload = {
         "url": clean_url,
-        "vQuality": "720",
-        "filenamePattern": "basic",
-        "isAudioMuted": False
+        "videoQuality": "720",
+        "filenameStyle": "basic"
     }
     
     headers = {
         "Accept": "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+        "Content-Type": "application/json"
     }
 
     try:
+        # У v10 запит іде на корінь або спеціальний інстанс
         response = requests.post(COBALT_API, json=payload, headers=headers, timeout=20)
         data = response.json()
         
-        # Якщо статус 400, виведемо текст помилки від Cobalt для діагностики
-        if response.status_code == 400:
-            return {"success": False, "error": f"Cobalt API Error: {data.get('text', 'Invalid link')}"}
-
-        download_url = data.get("url")
-        
-        if download_url:
-            # Витягуємо ID відео для прев'ю
+        # У v10 статус може бути 'tunnel', 'redirect' або 'picker'
+        if data.get("status") in ["tunnel", "redirect", "success"]:
             video_id = ""
             if "v=" in clean_url:
                 video_id = clean_url.split("v=")[1].split("&")[0]
@@ -61,10 +56,10 @@ async def get_info(request: VideoRequest):
                 "success": True,
                 "title": data.get("text", "YouTube Video"),
                 "thumbnail": f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg" if video_id else "",
-                "download_url": download_url
+                "download_url": data.get("url")
             }
         
-        return {"success": False, "error": "Direct link not found in Cobalt response"}
+        return {"success": False, "error": data.get("text", "API Error")}
 
     except Exception as e:
         return {"success": False, "error": str(e)}
