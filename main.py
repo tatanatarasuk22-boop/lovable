@@ -17,44 +17,54 @@ class VideoRequest(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "info": "Use POST /info for downloads"}
+    return {"status": "ok"}
 
 @app.post("/info")
 async def get_info(request: VideoRequest):
+    # Очищаємо посилання від зайвих параметрів трекінгу (?si=...)
+    clean_url = request.url.split('?')[0]
+    
     COBALT_API = "https://api.cobalt.tools/api/json"
+    
     payload = {
-        "url": request.url,
+        "url": clean_url,
         "vQuality": "720",
-        "filenamePattern": "basic"
+        "filenamePattern": "basic",
+        "isAudioMuted": False
     }
+    
     headers = {
         "Accept": "application/json",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
     }
 
     try:
         response = requests.post(COBALT_API, json=payload, headers=headers, timeout=20)
         data = response.json()
         
-        # Перевіряємо всі можливі поля, де може бути посилання
-        download_url = data.get("url") or data.get("link") or data.get("stream")
+        # Якщо статус 400, виведемо текст помилки від Cobalt для діагностики
+        if response.status_code == 400:
+            return {"success": False, "error": f"Cobalt API Error: {data.get('text', 'Invalid link')}"}
+
+        download_url = data.get("url")
         
         if download_url:
             # Витягуємо ID відео для прев'ю
             video_id = ""
-            if "v=" in request.url:
-                video_id = request.url.split("v=")[1].split("&")[0]
-            elif "youtu.be/" in request.url:
-                video_id = request.url.split("youtu.be/")[1].split("?")[0]
+            if "v=" in clean_url:
+                video_id = clean_url.split("v=")[1].split("&")[0]
+            elif "youtu.be/" in clean_url:
+                video_id = clean_url.split("youtu.be/")[1]
 
             return {
                 "success": True,
-                "title": "Your Video is Ready",
-                "download_url": download_url, # Чітке ім'я поля для Lovable
-                "thumbnail": f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg" if video_id else ""
+                "title": data.get("text", "YouTube Video"),
+                "thumbnail": f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg" if video_id else "",
+                "download_url": download_url
             }
-        else:
-            return {"success": False, "error": "Download link not found in API response", "raw_data": data}
+        
+        return {"success": False, "error": "Direct link not found in Cobalt response"}
 
     except Exception as e:
         return {"success": False, "error": str(e)}
