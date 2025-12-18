@@ -5,9 +5,11 @@ import requests
 
 app = FastAPI()
 
+# Дозволяємо Lovable підключатися до нашого сервера
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -15,13 +17,14 @@ app.add_middleware(
 class VideoRequest(BaseModel):
     url: str
 
+# Це виправить помилку 404, коли ви просто відкриваєте посилання в браузері
 @app.get("/")
 async def root():
-    return {"status": "online", "message": "API is working with Cobalt proxy"}
+    return {"message": "API is online and ready for Lovable!"}
 
 @app.post("/info")
 async def get_info(request: VideoRequest):
-    # Використовуємо надійний інстанс Cobalt
+    # Використовуємо Cobalt API, щоб обійти блокування YouTube
     COBALT_API = "https://api.cobalt.tools/api/json"
     
     headers = {
@@ -31,7 +34,7 @@ async def get_info(request: VideoRequest):
     
     payload = {
         "url": request.url,
-        "vQuality": "720", # можна змінити на 1080
+        "vQuality": "720",
         "filenamePattern": "basic"
     }
 
@@ -39,15 +42,21 @@ async def get_info(request: VideoRequest):
         response = requests.post(COBALT_API, json=payload, headers=headers)
         data = response.json()
         
-        # Cobalt повертає пряме посилання в полі 'url'
         if data.get("status") == "stream" or data.get("status") == "redirect":
+            # Спробуємо дістати ID відео для прев'ю
+            video_id = ""
+            if "v=" in request.url:
+                video_id = request.url.split("v=")[1].split("&")[0]
+            elif "youtu.be/" in request.url:
+                video_id = request.url.split("youtu.be/")[1].split("?")[0]
+
             return {
                 "title": "Video ready",
-                "thumbnail": "https://img.youtube.com/vi/" + request.url.split("v=")[-1].split("&")[0] + "/hqdefault.jpg",
+                "thumbnail": f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg" if video_id else "",
                 "url": data.get("url")
             }
         else:
-            return {"error": data.get("text", "Cobalt error")}
+            return {"error": data.get("text", "Cobalt could not process this link")}
             
     except Exception as e:
         return {"error": str(e)}
