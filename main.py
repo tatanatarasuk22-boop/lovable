@@ -1,17 +1,15 @@
+import requests
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import yt_dlp
 
 app = FastAPI()
 
-# --- НАЛАШТУВАННЯ CORS ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Дозволяє запити з будь-яких сайтів (включаючи Lovable)
-    allow_credentials=True,
-    allow_methods=["*"],  # Дозволяє всі методи (GET, POST тощо)
-    allow_headers=["*"],  # Дозволяє всі заголовки
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 class VideoRequest(BaseModel):
@@ -19,19 +17,28 @@ class VideoRequest(BaseModel):
 
 @app.post("/info")
 async def get_info(request: VideoRequest):
-    ydl_opts = {
-        'format': 'best',
-        'quiet': True,
-        'no_warnings': True,
+    # Використовуємо API Cobalt (open-source), який вміє обходити перевірку на ботів
+    cobalt_api = "https://api.cobalt.tools/api/json"
+    payload = {
+        "url": request.url,
+        "vQuality": "720",
+        "isAudioOnly": False
     }
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    }
+    
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(request.url, download=False)
+        response = requests.post(cobalt_api, json=payload, headers=headers)
+        data = response.json()
+        
+        if data.get("status") == "stream" or data.get("status") == "redirect":
             return {
-                "title": info.get('title'),
-                "thumbnail": info.get('thumbnail'),
-                "url": info.get('url'),  # Пряме посилання на відеофайл
-                "duration": info.get('duration')
+                "title": "Video Found",
+                "url": data.get("url"),
+                "thumbnail": "https://img.youtube.com/vi/" + request.url.split("v=")[-1] + "/0.jpg"
             }
+        return {"error": "Could not process video"}
     except Exception as e:
         return {"error": str(e)}
