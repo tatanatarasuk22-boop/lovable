@@ -15,51 +15,27 @@ app.add_middleware(
 class VideoRequest(BaseModel):
     url: str
 
-@app.get("/")
-async def root():
-    return {"status": "ok", "version": "v10-compatible"}
-
 @app.post("/info")
 async def get_info(request: VideoRequest):
-    # Очищаємо посилання
-    clean_url = request.url.split('?')[0]
-    
-    # НОВИЙ ЕНДПОІНТ Cobalt v10
-    COBALT_API = "https://api.cobalt.tools/"
-    
-    # Новий формат тіла запиту для v10
-    payload = {
-        "url": clean_url,
-        "videoQuality": "720",
-        "filenameStyle": "basic"
-    }
+    # ПРИКЛАД для YouTube/TikTok API з RapidAPI
+    url = "https://social-media-video-downloader.p.rapidapi.com/smvd/get/all"
+    querystring = {"url": request.url}
     
     headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json"
+        "X-RapidAPI-Key": "ВАШ_КЛЮЧ_ТУТ", # <--- ВСТАВТЕ СВІЙ КЛЮЧ
+        "X-RapidAPI-Host": "social-media-video-downloader.p.rapidapi.com"
     }
 
     try:
-        # У v10 запит іде на корінь або спеціальний інстанс
-        response = requests.post(COBALT_API, json=payload, headers=headers, timeout=20)
+        response = requests.get(url, headers=headers, params=querystring, timeout=15)
         data = response.json()
         
-        # У v10 статус може бути 'tunnel', 'redirect' або 'picker'
-        if data.get("status") in ["tunnel", "redirect", "success"]:
-            video_id = ""
-            if "v=" in clean_url:
-                video_id = clean_url.split("v=")[1].split("&")[0]
-            elif "youtu.be/" in clean_url:
-                video_id = clean_url.split("youtu.be/")[1]
-
-            return {
-                "success": True,
-                "title": data.get("text", "YouTube Video"),
-                "thumbnail": f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg" if video_id else "",
-                "download_url": data.get("url")
-            }
-        
-        return {"success": False, "error": data.get("text", "API Error")}
-
+        # Структура відповіді залежить від обраного API на RapidAPI
+        return {
+            "success": True,
+            "title": data.get("title", "Video"),
+            "thumbnail": data.get("picture", ""),
+            "download_url": data.get("links", [{}])[0].get("link", "")
+        }
     except Exception as e:
         return {"success": False, "error": str(e)}
