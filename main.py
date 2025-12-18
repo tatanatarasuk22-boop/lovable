@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import requests
+import re
 
 app = FastAPI()
 
@@ -15,50 +16,56 @@ app.add_middleware(
 class VideoRequest(BaseModel):
     url: str
 
+def extract_video_id(url):
+    # Регулярний вираз для пошуку ID відео
+    pattern = r'(?:v=|\/)([0-9A-Za-z_-]{11}).*'
+    match = re.search(pattern, url)
+    return match.group(1) if match else None
+
 @app.post("/info")
 async def get_info(request: VideoRequest):
-    # Очищаємо ID відео
-    video_id = ""
-    if "v=" in request.url:
-        video_id = request.url.split("v=")[1].split("&")[0]
-    elif "youtu.be/" in request.url:
-        video_id = request.url.split("youtu.be/")[1].split("?")[0]
+    video_id = extract_video_id(request.url)
+    if not video_id:
+        return {"success": False, "error": "Invalid YouTube URL"}
 
-    # Використовуємо RapidAPI
+    # ПЕРЕВІРТЕ ЦЮ АДРЕСУ: якщо ви підписалися на інший API на RapidAPI, змініть її тут
     api_url = "https://youtube-video-download-info.p.rapidapi.com/dl"
+    
     headers = {
         "X-RapidAPI-Key": "d16c4e16fdmsh867bc4e1e4ea9ebp1a6b7cjsn5588224fbd3e",
         "X-RapidAPI-Host": "youtube-video-download-info.p.rapidapi.com"
     }
 
     try:
-        response = requests.get(api_url, headers=headers, params={"id": video_id}, timeout=15)
+        # Спробуємо надіслати тільки ID, як того вимагає більшість API
+        response = requests.get(api_url, headers=headers, params={"id": video_id}, timeout=20)
         data = response.json()
         
-        # ЛОГІКА ПОШУКУ ПОСИЛАННЯ:
-        # Спершу шукаємо MP4 720p (формат 22), потім будь-яке інше
-        link_data = data.get("link", {})
-        download_url = ""
+        # Виводимо в консоль Render для діагностики (ви побачите це в логах)
+        print(f"DEBUG API RESPONSE: {data}")
+
+        # Гнучкий пошук посилання у відповіді
+        download_url = None
         
-        if isinstance(link_data, dict):
-            # Пробуємо знайти MP4 720p
-            download_url = link_data.get("22")
-            if not download_url:
-                # Якщо немає, беремо перше доступне посилання з масиву
-                for key in link_data:
-                    if link_data[key]:
-                        download_url = link_data[key][0]
-                        break
+        # Спробуємо знайти в полі 'link' (як у YouTube Video Download Info)
+        links = data.get("link", {})
+        if isinstance(links, dict):
+            # Пріоритет: 720p (22) -> 360p (18) -> перше ліпше
+            download_url = links.get("22") or links.get("18") or (next(iter(links.values())) if links else None)
+        
+        # Якщо API іншого типу, посилання може бути в 'url' або 'formats'
+        if not download_url:
+            download_url = data.get("url") or data.get("downloadUrl")
 
         if download_url:
             return {
                 "success": True,
-                "title": data.get("title") or "YouTube Video",
-                "thumbnail": data.get("thumb") or f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg",
+                "title": data.get("title", "YouTube Video"),
+                "thumbnail": data.get("thumb") or data.get("thumbnail") or f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg",
                 "download_url": download_url
             }
         else:
-            return {"success": False, "error": "Could not find a valid download link in the API response."}
+            return {"success": False, "error": f"API responded but no link found. Raw: {str(data)[:100]}"}
 
     except Exception as e:
-        return {"success": False, "error": f"Internal Server Error: {str(e)}"}
+        return {"success": False, "error": f"Server Error: {str(e)}"}
